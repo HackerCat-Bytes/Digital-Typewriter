@@ -148,7 +148,7 @@ def fetch_todos():
             if key in props:
                 sel = props[key].get("select") or {}
                 name = sel.get("name", "").lower()
-                if "work" in name:
+                if "uni" in name.lower():
                     category = "work"
                 break
 
