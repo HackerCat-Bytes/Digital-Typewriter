@@ -8,8 +8,8 @@ Environment variables required (set as GitHub Actions secrets):
   GOOGLE_CLIENT_ID
   GOOGLE_CLIENT_SECRET
   GOOGLE_REFRESH_TOKEN
-  NOTION_TOKEN
-  NOTION_DATABASE_ID      – the 32-char ID of your Notion to-do database
+  NOTION_TOKEN (optional)
+  NOTION_DATABASE_ID (optional) – the 32-char ID of your Notion to-do database
   WORK_CALENDAR_IDS       – comma-separated calendar IDs to treat as "work"
   PERSONAL_CALENDAR_IDS   – comma-separated calendar IDs to treat as "personal"
   TIMEZONE_OFFSET         – hours offset from UTC, e.g. "-4" for EDT, "-5" for EST
@@ -24,11 +24,11 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from bs4 import BeautifulSoup
 
-# ── Timezone ──────────────────────────────────────────────────────────────────
+# ── Timezone ───────────────────────────────────────────────────────────────────
 tz_offset = int(os.environ.get("TIMEZONE_OFFSET", "-4"))  # default: EDT
 LOCAL_TZ = timezone(timedelta(hours=tz_offset))
 
-# ── Google Calendar ───────────────────────────────────────────────────────────
+# ── Google Calendar ─────────────────────────────────────────────────────────────
 
 def get_calendar_service():
     creds = Credentials(
@@ -99,11 +99,17 @@ def fetch_events(service, calendar_id, category):
     return events
 
 
-# ── Notion ────────────────────────────────────────────────────────────────────
+# ── Notion ──────────────────────────────────────────────────────────────────────
 
 def fetch_todos():
-    token  = os.environ["NOTION_TOKEN"]
-    db_id  = os.environ["NOTION_DATABASE_ID"]
+    token  = os.environ.get("NOTION_TOKEN", "").strip()
+    db_id  = os.environ.get("NOTION_DATABASE_ID", "").strip()
+    
+    # If Notion is not configured, return empty list with note
+    if not token or not db_id:
+        print("ℹ️  Notion integration not configured (set NOTION_TOKEN and NOTION_DATABASE_ID to enable)")
+        return []
+    
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type":  "application/json",
@@ -118,13 +124,18 @@ def fetch_todos():
         }
     }
 
-    resp = requests.post(
-        f"https://api.notion.com/v1/databases/{db_id}/query",
-        headers=headers,
-        json=payload,
-        timeout=15,
-    )
-    resp.raise_for_status()
+    try:
+        resp = requests.post(
+            f"https://api.notion.com/v1/databases/{db_id}/query",
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️  Notion API error: {e}")
+        print(f"   Check that NOTION_TOKEN and NOTION_DATABASE_ID are valid")
+        return []
 
     todos = []
     for page in resp.json().get("results", []):
@@ -157,7 +168,7 @@ def fetch_todos():
     return todos
 
 
-# ── HTML building ─────────────────────────────────────────────────────────────
+# ── HTML building ──────────────────────────────────────────────────────────────
 
 def event_li(ev):
     cat   = ev["category"]
@@ -196,12 +207,12 @@ def no_todo_li():
     return (
         '<li class="todo">'
         '<span class="todo-icon todo-personal">personal</span>'
-        '<span class="label">Nothing to do YAYYY</span>'
+        '<span class="label">Set up Notion integration to add to-dos</span>'
         '</li>'
     )
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────────────────────────────
 
 def main():
     # --- Collect events ---
